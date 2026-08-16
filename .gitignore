@@ -1,0 +1,91 @@
+# ====== База данных SQLite ======
+production.db
+production.db.backup*
+*.db
+*.db.backup*
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ====== Переменные окружения ======
+.env
+.env.local
+.env.*.local
+
+# ====== Виртуальное окружение ======
+venv/
+env/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+
+# ====== Логи ======
+bot.log
+*.log
+logs/
+
+# ====== Временные CSV файлы ======
+report_*.csv
+import_*.csv
+*.tmp
+*.bak
+
+# ====== Python ======
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ====== IDE ======
+# PyCharm
+.idea/
+*.iml
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ====== macOS ======
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# ====== Скрипты управления ======
+start.sh
+stop.sh
+restart.sh
+logs.sh
+status.sh
+clean_logs.sh
+reset_sectors.py
+migrate.py
+
+# ====== PID файлы ======
+*.pid
+bot.pid
