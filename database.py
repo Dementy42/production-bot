@@ -335,7 +335,46 @@ class Database:
             for row in data:
                 writer.writerow(row)
         return filename
+        # ===== PARTS (Детали) =====
+    def get_all_parts(self):
+        """Получить все активные детали"""
+        with self.get_connection() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT id, name, plastic_type, print_time_minutes, 
+                               parts_per_table, description 
+                        FROM parts WHERE is_active = 1 
+                        ORDER BY name""")
+            return c.fetchall()
     
+    def get_part_by_name(self, part_name):
+        """Найти деталь по имени (номеру)"""
+        with self.get_connection() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT id, name, plastic_type, print_time_minutes, 
+                               parts_per_table, description 
+                        FROM parts WHERE name = ? AND is_active = 1""", 
+                     (str(part_name),))
+            return c.fetchone()
+    
+    def add_part(self, name, plastic_type, print_time, parts_per_table, description=""):
+        """Добавить новую деталь"""
+        with self.get_connection() as conn:
+            c = conn.cursor()
+            c.execute("""INSERT INTO parts 
+                        (name, plastic_type, print_time_minutes, parts_per_table, description)
+                        VALUES (?, ?, ?, ?, ?)""",
+                     (name, plastic_type, print_time, parts_per_table, description))
+            conn.commit()
+            return c.lastrowid
+    
+    def update_part_table_qty(self, part_name, new_qty):
+        """Обновить количество деталей на столе"""
+        with self.get_connection() as conn:
+            c = conn.cursor()
+            c.execute("UPDATE parts SET parts_per_table = ? WHERE name = ?",
+                     (new_qty, str(part_name)))
+            conn.commit()
+            
     # ===== MASS IMPORT =====
     def bulk_import_users(self, users_list):
         """

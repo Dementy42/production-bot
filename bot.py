@@ -88,19 +88,37 @@ def format_sector_report(sector_id, shift_date):
     
     for task in tasks:
         stats = db.get_task_statistics(task[0])
-        total_fact = stats[0] + stats[1]
-        percentage = (total_fact / task[7] * 100) if task[7] > 0 else 0
+        
+        # 🔥 ИСПРАВЛЕНИЕ: факт = только годные детали
+        total_good = stats[0]      # годные
+        total_defect = stats[1]    # брак
+        total_printed = total_good + total_defect  # всего напечатано
+        plan = task[7]
+        
+        # Процент выполнения (от годных к плану)
+        percentage = (total_good / plan * 100) if plan > 0 else 0
+        
+        # 🔥 НОВОЕ: сколько деталей не хватает
+        remaining = plan - total_good
+        if remaining > 0:
+            remaining_text = f"⬇️ не хватает: <b>{remaining}</b>"
+        elif remaining == 0:
+            remaining_text = "✅ <b>план выполнен!</b>"
+        else:
+            remaining_text = f"⬆️ перевыполнение: <b>{abs(remaining)}</b>"
         
         report += (
-            f"📦 <b>Деталь {task[2]}</b> ({task[3]}) || "
-            f"{task[4]} принтеров || "
-            f"съемов {stats[2]}/{task[5]} || "
-            f"факт/план - {total_fact}/{task[7]} ({percentage:.0f}%) || "
-            f"брак: {stats[1]}\n\n"
+            f"📦 <b>Деталь {task[2]}</b> ({task[3]})\n"
+            f"🖨️ {task[4]} принтеров | "
+            f"съемов {stats[2]}/{task[5]}\n"
+            f"📊 факт/план: <b>{total_good}/{plan}</b> "
+            f"({percentage:.0f}%)\n"
+            f"{remaining_text}\n"
+            f"❌ брак: <b>{total_defect}</b>\n"
+            f"📦 всего напечатано: {total_printed}\n\n"
         )
     
     return report
-
 
 async def notify_seniors(message_text):
     for senior_id in db.get_senior_operators():
@@ -351,8 +369,46 @@ async def process_type(callback: types.CallbackQuery, state: FSMContext):
 async def show_qty_keyboard(msg_obj, state: FSMContext, quantity):
     data = await state.get_data()
     type_text = "годен" if data.get('box_type') == 'good' else "брак"
+    part_name = data.get('part_number')
     
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    # Получаем инфо о детали из БД
+    part_info = db.get_part_by_name(part_name)
+    table_info = ""
+    table_buttons = []
+    
+    if part_info:
+        parts_per_table = part_info[4]
+        plastic = part_info[2] or "?"
+        table_info = (
+            f"\n\nℹ️ <b>Инфо о детали:</b>\n"
+            f"🧪 Пластик: {plastic}\n"
+            f"📦 На столе: {parts_per_table} шт."
+        )
+        # Добавляем кнопки для работы со столами
+        table_buttons = [
+            [
+                InlineKeyboardButton(
+                    text=f"➖ 1 стол (-{parts_per_table})", 
+                    callback_data=f"t_-1"
+                ),
+                InlineKeyboardButton(
+                    text=f"➕ 1 стол (+{parts_per_table})", 
+                    callback_data=f"t_+1"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"➕ 5 столов (+{parts_per_table * 5})", 
+                    callback_data=f"t_+5"
+                ),
+                InlineKeyboardButton(
+                    text=f"➕ 10 столов (+{parts_per_table * 10})", 
+                    callback_data=f"t_+10"
+                )
+            ]
+        ]
+    
+    kb_rows = [
         [
             InlineKeyboardButton(text="+1", callback_data="q_+1"),
             InlineKeyboardButton(text="-1", callback_data="q_-1"),
@@ -362,14 +418,23 @@ async def show_qty_keyboard(msg_obj, state: FSMContext, quantity):
             InlineKeyboardButton(text="+10", callback_data="q_+10"),
             InlineKeyboardButton(text="+50", callback_data="q_+50"),
             InlineKeyboardButton(text="+100", callback_data="q_+100")
-        ],
+        ]
+    ]
+    
+    # Добавляем кнопки столов если деталь найдена
+    if table_buttons:
+        kb_rows.extend(table_buttons)
+    
+    kb_rows.extend([
         [InlineKeyboardButton(text="✅ Подтвердить", callback_data="q_confirm")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_box")]
     ])
     
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    
     text = (
-        f"Деталь <b>{data.get('part_number')}</b> ({type_text})\n"
-        f"Количество: <b>{quantity}</b>\n\n"
+        f"Деталь <b>{part_name}</b> ({type_text})\n"
+        f"Количество: <b>{quantity}</b>{table_info}\n\n"
         f"Или введите число текстом:"
     )
     
@@ -377,7 +442,6 @@ async def show_qty_keyboard(msg_obj, state: FSMContext, quantity):
         await msg_obj.answer(text, reply_markup=kb, parse_mode="HTML")
     else:
         await msg_obj.edit_text(text, reply_markup=kb, parse_mode="HTML")
-
 
 @dp.callback_query(BoxAddStates.waiting_quantity, F.data.startswith("q_"))
 async def process_qty_button(callback: types.CallbackQuery, state: FSMContext):
@@ -401,6 +465,34 @@ async def process_qty_button(callback: types.CallbackQuery, state: FSMContext):
     await show_qty_keyboard(callback.message, state, quantity)
     await callback.answer()
 
+@dp.callback_query(BoxAddStates.waiting_quantity, F.data.startswith("t_"))
+async def process_table_button(callback: types.CallbackQuery, state: FSMContext):
+    """Обработка кнопок +1/-1 стол"""
+    data = await state.get_data()
+    quantity = data.get('quantity', 0)
+    part_name = data.get('part_number')
+    
+    # Получаем parts_per_table из БД
+    part_info = db.get_part_by_name(part_name)
+    if not part_info:
+        await callback.answer("❌ Деталь не найдена в базе", show_alert=True)
+        return
+    
+    parts_per_table = part_info[4]
+    
+    # Парсим действие: t_+1, t_-1, t_+5, t_+10
+    action = callback.data.split("_")[1]
+    
+    if action.startswith("+"):
+        multiplier = int(action[1:])
+        quantity += parts_per_table * multiplier
+    elif action.startswith("-"):
+        multiplier = int(action[1:])
+        quantity = max(0, quantity - parts_per_table * multiplier)
+    
+    await state.update_data(quantity=quantity)
+    await show_qty_keyboard(callback.message, state, quantity)
+    await callback.answer(f"±{parts_per_table * (multiplier if 'multiplier' in locals() else 1)} шт.")
 
 @dp.message(BoxAddStates.waiting_quantity)
 async def process_qty_text(message: types.Message, state: FSMContext):
@@ -476,7 +568,7 @@ async def confirm_box_yes(callback: types.CallbackQuery, state: FSMContext):
     db.add_box(task[0], data.get('part_number'), box_number, good, defect)
     
     stats = db.get_task_statistics(task[0])
-    total_fact = stats[0] + stats[1]
+    total_fact = stats[0]
     pct = (total_fact / task[7] * 100) if task[7] > 0 else 0
     type_text = "годен" if data.get('box_type') == 'good' else "брак"
     
@@ -1518,7 +1610,127 @@ async def stats_button(message: types.Message):
 async def back_button(message: types.Message):
     await cmd_menu(message, None)
 
+# ====== Управление деталями (senior/admin) ======
+@dp.message(Command("addpart"))
+async def add_part_cmd(message: types.Message):
+    """Добавить новую деталь в каталог"""
+    if not is_senior_or_admin(db.get_user_by_telegram_id(message.from_user.id)):
+        await message.answer("🚫 Только для старших операторов.")
+        return
+    
+    parts = message.text.split(maxsplit=5)
+    
+    if len(parts) < 5:
+        await message.answer(
+            "📋 <b>Формат команды:</b>\n\n"
+            "<code>/addpart имя пластик время_печати деталей_на_столе [описание]</code>\n\n"
+            "<b>Пример:</b>\n"
+            "<code>/addpart 7 PLA 45 5 Корпус основной</code>\n"
+            "<code>/addpart 10 ABS 60 4</code>\n\n"
+            "Список деталей: /listparts",
+            parse_mode="HTML"
+        )
+        return
+    
+    try:
+        name = parts[1].strip()
+        plastic_type = parts[2].strip()
+        print_time = int(parts[3].strip())
+        parts_per_table = int(parts[4].strip())
+        description = parts[5].strip() if len(parts) > 5 else ""
+        
+        if print_time <= 0 or parts_per_table <= 0:
+            await message.answer("❌ Время и количество должны быть > 0")
+            return
+        
+        part_id = db.add_part(name, plastic_type, print_time, parts_per_table, description)
+        
+        await message.answer(
+            f"✅ <b>Деталь добавлена!</b>\n\n"
+            f"🆔 ID: {part_id}\n"
+            f"📦 Имя: <b>{name}</b>\n"
+            f"🧪 Пластик: {plastic_type}\n"
+            f"⏱️ Время печати: {print_time} мин\n"
+            f"📋 На столе: {parts_per_table} шт\n"
+            f"📝 Описание: {description or '—'}",
+            parse_mode="HTML"
+        )
+    except ValueError:
+        await message.answer("❌ Неверный формат чисел")
+    except Exception as e:
+        if "UNIQUE constraint" in str(e):
+            await message.answer(f"❌ Деталь с именем '{name}' уже существует")
+        else:
+            await message.answer(f"❌ Ошибка: {e}")
 
+
+@dp.message(Command("listparts"))
+async def list_parts_cmd(message: types.Message):
+    """Показать все детали"""
+    user = db.get_user_by_telegram_id(message.from_user.id)
+    if not user:
+        await message.answer("Сначала авторизуйтесь: /start")
+        return
+    
+    parts = db.get_all_parts()
+    
+    if not parts:
+        await message.answer("📦 Каталог деталей пуст.\nДобавьте через /addpart")
+        return
+    
+    text = f"📦 <b>Каталог деталей ({len(parts)}):</b>\n\n"
+    for p in parts:
+        text += (
+            f"<b>{p[1]}</b> | {p[2] or '?'} | "
+            f"⏱️{p[3]}мин | 📋{p[4]}шт\n"
+        )
+    
+    await message.answer(text, parse_mode="HTML")
+
+
+@dp.message(Command("updatepart"))
+async def update_part_cmd(message: types.Message):
+    """Обновить количество деталей на столе"""
+    if not is_senior_or_admin(db.get_user_by_telegram_id(message.from_user.id)):
+        await message.answer("🚫 Только для старших операторов.")
+        return
+    
+    parts = message.text.split()
+    if len(parts) != 3:
+        await message.answer(
+            "Формат: <code>/updatepart имя_детали новое_кол-во</code>\n"
+            "Пример: <code>/updatepart 7 6</code>",
+            parse_mode="HTML"
+        )
+        return
+    
+    try:
+        name = parts[1].strip()
+        new_qty = int(parts[2].strip())
+        
+        if new_qty <= 0:
+            await message.answer("❌ Количество должно быть > 0")
+            return
+        
+        part = db.get_part_by_name(name)
+        if not part:
+            await message.answer(f"❌ Деталь '{name}' не найдена")
+            return
+        
+        old_qty = part[4]
+        db.update_part_table_qty(name, new_qty)
+        
+        await message.answer(
+            f"✅ Обновлено для детали <b>{name}</b>:\n"
+            f"Было: {old_qty} шт на столе\n"
+            f"Стало: <b>{new_qty}</b> шт на столе",
+            parse_mode="HTML"
+        )
+    except ValueError:
+        await message.answer("❌ Количество должно быть числом")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+        
 # ====== Запуск ======
 async def main():
     try:
