@@ -38,6 +38,37 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 db = Database()
 
+# ====== ГЛОБАЛЬНАЯ ЗАЩИТА CALLBACK'ОВ ======
+from aiogram.types import CallbackQuery
+import traceback
+
+@dp.callback_query()
+async def callback_error_handler(callback: CallbackQuery, handler):
+    """Middleware: ловит все ошибки в callback'ах и всегда отвечает answer()"""
+    try:
+        return await handler(callback)
+    except Exception as e:
+        logger.error(f"❌ Ошибка в callback '{callback.data}': {e}")
+        logger.error(traceback.format_exc())
+        
+        try:
+            await callback.answer(f"⚠️ Ошибка: {str(e)[:50]}", show_alert=True)
+        except:
+            pass
+        
+        try:
+            await callback.message.answer(
+                f"🚨 <b>Произошла ошибка</b>\n\n"
+                f"Действие: <code>{callback.data}</code>\n"
+                f"Ошибка: <code>{str(e)[:200]}</code>\n\n"
+                f"Попробуйте ещё раз или обратитесь к администратору.",
+                parse_mode="HTML"
+            )
+        except:
+            pass
+        
+        return True  # помечаем как обработанное
+    
 # ====== СПИСОК ГЛАВНЫХ АДМИНИСТРАТОРОВ ======
 ADMIN_IDS = [
     1173990828,  # ← ВАШ TELEGRAM ID
@@ -358,57 +389,32 @@ async def process_part(message: types.Message, state: FSMContext):
 
 
 @dp.callback_query(BoxAddStates.waiting_type, F.data.in_(["bt_good", "bt_defect"]))
+@dp.callback_query(BoxAddStates.waiting_type, F.data.in_(["bt_good", "bt_defect"]))
 async def process_type(callback: types.CallbackQuery, state: FSMContext):
-    box_type = "good" if callback.data == "bt_good" else "defect"
-    await state.update_data(box_type=box_type, quantity=0)
-    await state.set_state(BoxAddStates.waiting_quantity)
-    await show_qty_keyboard(callback.message, state, 0)
-    await callback.answer()
-
+    try:
+        box_type = "good" if callback.data == "bt_good" else "defect"
+        await state.update_data(box_type=box_type, quantity=0)
+        await state.set_state(BoxAddStates.waiting_quantity)
+        
+        # Отвечаем СРАЗУ, чтобы снять часики
+        await callback.answer()
+        
+        # Теперь обновляем клавиатуру
+        await show_qty_keyboard(callback.message, state, 0)
+        
+    except Exception as e:
+        logger.error(f"Ошибка в process_type: {e}")
+        try:
+            await callback.answer(f"❌ Ошибка: {e}", show_alert=True)
+        except:
+            pass
 
 async def show_qty_keyboard(msg_obj, state: FSMContext, quantity):
     data = await state.get_data()
     type_text = "годен" if data.get('box_type') == 'good' else "брак"
-    part_name = data.get('part_number')
+    part_number = data.get('part_number', '?')
     
-    # Получаем инфо о детали из БД
-    part_info = db.get_part_by_name(part_name)
-    table_info = ""
-    table_buttons = []
-    
-    if part_info:
-        parts_per_table = part_info[4]
-        plastic = part_info[2] or "?"
-        table_info = (
-            f"\n\nℹ️ <b>Инфо о детали:</b>\n"
-            f"🧪 Пластик: {plastic}\n"
-            f"📦 На столе: {parts_per_table} шт."
-        )
-        # Добавляем кнопки для работы со столами
-        table_buttons = [
-            [
-                InlineKeyboardButton(
-                    text=f"➖ 1 стол (-{parts_per_table})", 
-                    callback_data=f"t_-1"
-                ),
-                InlineKeyboardButton(
-                    text=f"➕ 1 стол (+{parts_per_table})", 
-                    callback_data=f"t_+1"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=f"➕ 5 столов (+{parts_per_table * 5})", 
-                    callback_data=f"t_+5"
-                ),
-                InlineKeyboardButton(
-                    text=f"➕ 10 столов (+{parts_per_table * 10})", 
-                    callback_data=f"t_+10"
-                )
-            ]
-        ]
-    
-    kb_rows = [
+    kb = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="+1", callback_data="q_+1"),
             InlineKeyboardButton(text="-1", callback_data="q_-1"),
@@ -418,53 +424,68 @@ async def show_qty_keyboard(msg_obj, state: FSMContext, quantity):
             InlineKeyboardButton(text="+10", callback_data="q_+10"),
             InlineKeyboardButton(text="+50", callback_data="q_+50"),
             InlineKeyboardButton(text="+100", callback_data="q_+100")
-        ]
-    ]
-    
-    # Добавляем кнопки столов если деталь найдена
-    if table_buttons:
-        kb_rows.extend(table_buttons)
-    
-    kb_rows.extend([
+        ],
         [InlineKeyboardButton(text="✅ Подтвердить", callback_data="q_confirm")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_box")]
     ])
     
-    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
-    
     text = (
-        f"Деталь <b>{part_name}</b> ({type_text})\n"
-        f"Количество: <b>{quantity}</b>{table_info}\n\n"
+        f"Деталь <b>{part_number}</b> ({type_text})\n"
+        f"Количество: <b>{quantity}</b>\n\n"
         f"Или введите число текстом:"
     )
     
-    if isinstance(msg_obj, types.Message):
-        await msg_obj.answer(text, reply_markup=kb, parse_mode="HTML")
-    else:
-        await msg_obj.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    # 🔥 ЗАЩИТА: оборачиваем edit_text в try/except
+    try:
+        if isinstance(msg_obj, types.Message):
+            await msg_obj.answer(text, reply_markup=kb, parse_mode="HTML")
+        else:
+            try:
+                await msg_obj.edit_text(text, reply_markup=kb, parse_mode="HTML")
+            except Exception as e:
+                # Если edit_text упал (например, "message is not modified")
+                # отправляем новым сообщением
+                if "message is not modified" in str(e).lower():
+                    pass  # игнорируем — текст такой же
+                else:
+                    # fallback: отправляем новое сообщение
+                    await msg_obj.answer(text, reply_markup=kb, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Ошибка в show_qty_keyboard: {e}")
+
 
 @dp.callback_query(BoxAddStates.waiting_quantity, F.data.startswith("q_"))
+@dp.callback_query(BoxAddStates.waiting_quantity, F.data.startswith("q_"))
 async def process_qty_button(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    quantity = data.get('quantity', 0)
-    action = callback.data.split("_")[1]
-    
-    if action == "confirm":
-        if quantity > 0:
-            await show_confirmation(callback.message, state)
-        else:
-            await callback.answer("Количество должно быть > 0", show_alert=True)
-        return
-    
-    if action.startswith("+"):
-        quantity += int(action[1:])
-    elif action.startswith("-"):
-        quantity = max(0, quantity - int(action[1:]))
-    
-    await state.update_data(quantity=quantity)
-    await show_qty_keyboard(callback.message, state, quantity)
-    await callback.answer()
-
+    try:
+        data = await state.get_data()
+        quantity = data.get('quantity', 0)
+        action = callback.data.split("_")[1]
+        
+        if action == "confirm":
+            if quantity > 0:
+                await callback.answer()  # снять часики
+                await show_confirmation(callback.message, state)
+            else:
+                await callback.answer("Количество должно быть > 0", show_alert=True)
+            return
+        
+        if action.startswith("+"):
+            quantity += int(action[1:])
+        elif action.startswith("-"):
+            quantity = max(0, quantity - int(action[1:]))
+        
+        await state.update_data(quantity=quantity)
+        await callback.answer()  # 🔥 СНАЧАЛА answer
+        await show_qty_keyboard(callback.message, state, quantity)
+        
+    except Exception as e:
+        logger.error(f"Ошибка в process_qty_button: {e}")
+        try:
+            await callback.answer(f"Ошибка: {e}", show_alert=True)
+        except:
+            pass
+        
 @dp.callback_query(BoxAddStates.waiting_quantity, F.data.startswith("t_"))
 async def process_table_button(callback: types.CallbackQuery, state: FSMContext):
     """Обработка кнопок +1/-1 стол"""
@@ -665,28 +686,61 @@ async def edit_part_select(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("edit_box_"))
 @dp.callback_query(F.data.startswith("edit_add_defect_"))
+@dp.callback_query(F.data.startswith("edit_box_"))
+@dp.callback_query(F.data.startswith("edit_add_defect_"))
 async def edit_box_select(callback: types.CallbackQuery, state: FSMContext):
     is_new_defect = callback.data.startswith("edit_add_defect_")
     
-    if is_new_defect:
-        task_id = int(callback.data.split("_")[3])
-        task = db.get_task(task_id)
-        boxes = db.get_boxes_for_task(task_id)
-        box_number = len(boxes) + 1
+    try:
+        if is_new_defect:
+            task_id = int(callback.data.split("_")[3])
+            task = db.get_task(task_id)
+            if not task:
+                await callback.answer("❌ Задание не найдено", show_alert=True)
+                return
+            
+            boxes = db.get_boxes_for_task(task_id)
+            box_number = len(boxes) + 1
+            
+            db.add_box(task_id, task[2], box_number, 0, 0)
+            box_id = db.get_boxes_for_task(task_id)[-1][0]
+            part_number = task[2]  # 🔥 сохраняем номер детали
+            
+            await state.update_data(
+                edit_box_id=box_id, 
+                is_new_defect=True,
+                part_number=part_number,  # 🔥 сохраняем в state
+                box_type='defect'  # для добавления брака
+            )
+        else:
+            box_id = int(callback.data.split("_")[2])
+            
+            # Получаем part_number из существующей коробки
+            with db.get_connection() as conn:
+                c = conn.cursor()
+                c.execute("SELECT part_number FROM boxes WHERE id = ?", (box_id,))
+                row = c.fetchone()
+                part_number = row[0] if row else "?"
+            
+            await state.update_data(
+                edit_box_id=box_id, 
+                is_new_defect=False,
+                part_number=part_number,  # 🔥 сохраняем в state
+                box_type='good'
+            )
         
-        db.add_box(task_id, task[2], box_number, 0, 0)
-        box_id = db.get_boxes_for_task(task_id)[-1][0]
+        await state.update_data(quantity=0)
+        await state.set_state(BoxAddStates.waiting_quantity)
         
-        await state.update_data(edit_box_id=box_id, is_new_defect=True)
-    else:
-        box_id = int(callback.data.split("_")[2])
-        await state.update_data(edit_box_id=box_id, is_new_defect=False)
-    
-    await state.update_data(quantity=0, box_type='good')
-    await state.set_state(BoxAddStates.waiting_quantity)
-    await show_qty_keyboard(callback.message, state, 0)
-    await callback.answer()
-
+        # Отвечаем СРАЗУ, чтобы часики не крутились
+        await callback.answer()
+        
+        # Теперь обновляем сообщение
+        await show_qty_keyboard(callback.message, state, 0)
+        
+    except Exception as e:
+        logger.error(f"Ошибка в edit_box_select: {e}")
+        await callback.answer(f"❌ Ошибка: {e}", show_alert=True)
 
 # ====== Создание ПЗ (senior/admin) ======
 @dp.message(F.text == "➕ Создать ПЗ")
@@ -1730,7 +1784,7 @@ async def update_part_cmd(message: types.Message):
         await message.answer("❌ Количество должно быть числом")
     except Exception as e:
         await message.answer(f"❌ Ошибка: {e}")
-        
+
 # ====== Запуск ======
 async def main():
     try:
