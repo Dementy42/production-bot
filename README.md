@@ -34,12 +34,20 @@ CREATE TABLE IF NOT EXISTS parts (
     is_active BOOLEAN DEFAULT 1
 );
 
-INSERT OR IGNORE INTO parts (name, plastic_type, print_time_minutes, parts_per_table) VALUES 
-    ('1v1', 'PLA AERO', 310, 6),
-    ('9', 'PLA AERO', 695, 4),
-    ('10', 'PLA AERO', 350, 4),
-    ('16v1', 'PLA AERO', 355, 2);
+    INSERT OR IGNORE INTO parts (name, plastic_type, print_time_minutes, parts_per_table) VALUES 
+        ('52', 'PETG ХАКИ', 512, 8),
+        ('51', 'PETG ХАКИ', 503, 8),
+        ('25', 'PETG ХАКИ', 323, 16),
+        ('10', 'PLA AERO', 307, 4),
+        ('14', 'PLA AERO', 310, 10),
+        ('17_18', 'PLA AERO', 273, 4);
 
 SELECT id, name, plastic_type, parts_per_table FROM parts;
 .quit
 
+20 - 4:55 - 4
+15 - 4:43 - 3
+
+16 - 4:23 - 2
+20 - 4:55 - 4
+9 - 11:46- 4

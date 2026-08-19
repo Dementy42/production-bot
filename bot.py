@@ -42,33 +42,49 @@ db = Database()
 from aiogram.types import CallbackQuery
 import traceback
 
-@dp.callback_query()
-async def callback_error_handler(callback: CallbackQuery, handler):
-    """Middleware: ловит все ошибки в callback'ах и всегда отвечает answer()"""
-    try:
-        return await handler(callback)
-    except Exception as e:
-        logger.error(f"❌ Ошибка в callback '{callback.data}': {e}")
-        logger.error(traceback.format_exc())
-        
-        try:
-            await callback.answer(f"⚠️ Ошибка: {str(e)[:50]}", show_alert=True)
-        except:
-            pass
-        
-        try:
-            await callback.message.answer(
-                f"🚨 <b>Произошла ошибка</b>\n\n"
-                f"Действие: <code>{callback.data}</code>\n"
-                f"Ошибка: <code>{str(e)[:200]}</code>\n\n"
-                f"Попробуйте ещё раз или обратитесь к администратору.",
-                parse_mode="HTML"
-            )
-        except:
-            pass
-        
-        return True  # помечаем как обработанное
+# ====== ПРАВИЛЬНАЯ РЕГИСТРАЦИЯ MIDDLEWARE ======
+from aiogram import BaseMiddleware
+from aiogram.types import TelegramObject, CallbackQuery
+import traceback
+
+
+class ErrorHandlerMiddleware(BaseMiddleware):
+    """Middleware для отлова ошибок во всех callback'ах"""
     
+    async def __call__(self, handler, event: TelegramObject, data):
+        try:
+            return await handler(event, data)
+        except Exception as e:
+            # Логируем ошибку
+            logger.error(f"❌ Ошибка: {e}")
+            logger.error(traceback.format_exc())
+            
+            # Если это callback — отвечаем и показываем ошибку
+            if isinstance(event, CallbackQuery):
+                try:
+                    await event.answer(f"⚠️ Ошибка: {str(e)[:50]}", show_alert=True)
+                except:
+                    pass
+                
+                try:
+                    await event.message.answer(
+                        f"🚨 <b>Произошла ошибка</b>\n\n"
+                        f"Действие: <code>{event.data}</code>\n"
+                        f"Ошибка: <code>{str(e)[:200]}</code>\n\n"
+                        f"Попробуйте ещё раз.",
+                        parse_mode="HTML"
+                    )
+                except:
+                    pass
+            
+            # Помечаем как обработанное
+            return None
+
+
+# Регистрируем middleware на ВСЕ обновления (включая callback_query)
+dp.update.outer_middleware(ErrorHandlerMiddleware())
+
+
 # ====== СПИСОК ГЛАВНЫХ АДМИНИСТРАТОРОВ ======
 ADMIN_IDS = [
     1173990828,  # ← ВАШ TELEGRAM ID
@@ -485,7 +501,7 @@ async def process_qty_button(callback: types.CallbackQuery, state: FSMContext):
             await callback.answer(f"Ошибка: {e}", show_alert=True)
         except:
             pass
-        
+
 @dp.callback_query(BoxAddStates.waiting_quantity, F.data.startswith("t_"))
 async def process_table_button(callback: types.CallbackQuery, state: FSMContext):
     """Обработка кнопок +1/-1 стол"""
