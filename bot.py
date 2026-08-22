@@ -135,10 +135,10 @@ def format_sector_report(sector_id, shift_date):
     sector_name = db.get_sector_name(sector_id)
 
     if not tasks:
-        return f"📋 <b>{sector_name}</b>\\nНет заданий на {shift_date}."
+        return f"📋 <b>{sector_name}</b>\nНет заданий на {shift_date}."
 
     now = datetime.now().strftime("%d.%m.%Y %H:%M")
-    report = f"📋 <b>{sector_name}</b>\\n🕒 {now}\\n📅 {shift_date}\\n\\n"
+    report = f"📋 <b>{sector_name}</b>\n🕒 {now}\n📅 {shift_date}\n\n"
 
     for task in tasks:
         task_id = task[0]
@@ -170,13 +170,13 @@ def format_sector_report(sector_id, shift_date):
         }.get(status, "❔ неизвестно")
 
         report += (
-            f"📦 <b>Деталь {part_number}</b> — {shift_time} | {status_text}\\n"
-            f"🆔 ПЗ: <code>{task_id}</code>\\n"
-            f"🖨️ {printers} принтеров | съемов {box_count}/{launches}\\n"
-            f"📊 факт/план: <b>{total_good}/{plan}</b> ({percentage:.0f}%)\\n"
-            f"{remaining_text}\\n"
-            f"❌ брак: <b>{total_defect}</b>\\n"
-            f"📦 всего напечатано: {total_printed}\\n\\n"
+            f"📦 <b>Деталь {part_number}</b> — {shift_time} | {status_text}\n"
+            f"🆔 ПЗ: <code>{task_id}</code>\n"
+            f"🖨️ {printers} принтеров | съемов {box_count}/{launches}\n"
+            f"📊 факт/план: <b>{total_good}/{plan}</b> ({percentage:.0f}%)\n"
+            f"{remaining_text}\n"
+            f"❌ брак: <b>{total_defect}</b>\n"
+            f"📦 всего напечатано: {total_printed}\n\n"
         )
 
     return report
@@ -423,7 +423,7 @@ async def box_add_sector(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(sector_id=sector_id)
     await state.set_state(BoxAddStates.waiting_shift)
     await callback.message.edit_text(
-        f"Участок: <b>{db.get_sector_name(sector_id)}</b>\\nВыберите смену ПЗ:",
+        f"Участок: <b>{db.get_sector_name(sector_id)}</b>\nВыберите смену ПЗ:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="☀️ День", callback_data="ba_shift_день"),
              InlineKeyboardButton(text="🌙 Ночь", callback_data="ba_shift_ночь")],
@@ -479,7 +479,7 @@ async def box_add_task(callback: types.CallbackQuery, state: FSMContext):
     )
     await state.set_state(BoxAddStates.waiting_type)
     await callback.message.edit_text(
-        f"ПЗ #{task_id} | Деталь <b>{task[2]}</b> ({task[3]})\\nВыберите тип:",
+        f"ПЗ #{task_id} | Деталь <b>{task[2]}</b> ({task[3]})\nВыберите тип:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Годен", callback_data="bt_good"),
              InlineKeyboardButton(text="❌ Брак", callback_data="bt_defect")],
@@ -523,8 +523,8 @@ async def show_qty_keyboard(msg_obj, state: FSMContext, quantity):
     ])
 
     text = (
-        f"ПЗ #{data.get('task_id', '?')} | Деталь <b>{part_number}</b> ({type_text})\\n"
-        f"Количество: <b>{quantity}</b>\\n\\nВведите число или используйте кнопки:"
+        f"ПЗ #{data.get('task_id', '?')} | Деталь <b>{part_number}</b> ({type_text})\n"
+        f"Количество: <b>{quantity}</b>\n\nВведите число или используйте кнопки:"
     )
 
     try:
@@ -604,10 +604,10 @@ async def show_confirmation(msg_obj, state: FSMContext):
     await state.set_state(BoxAddStates.waiting_confirmation)
 
     text = (
-        f"<b>Подтвердите создание коробки</b>\\n"
-        f"ПЗ: #{data.get('task_id')}\\n"
-        f"Деталь: {data.get('part_number')} ({data.get('shift_time')})\\n"
-        f"Тип: {type_text}\\n"
+        f"<b>Подтвердите создание коробки</b>\n"
+        f"ПЗ: #{data.get('task_id')}\n"
+        f"Деталь: {data.get('part_number')} ({data.get('shift_time')})\n"
+        f"Тип: {type_text}\n"
         f"Количество: {data.get('quantity')}"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -653,20 +653,20 @@ async def confirm_box_yes(callback: types.CallbackQuery, state: FSMContext):
         type_text = "годен" if data["box_type"] == "good" else "брак"
 
         report_text = (
-            f"✅ <b>Коробка #{box_number} добавлена!</b>\\n"
-            f"ПЗ #{task[0]} | Деталь {task[2]} ({task[3]})\\n"
-            f"{type_text}: {data['quantity']}\\n\\n"
-            f"📊 <b>Факт/План:</b> {total_fact}/{plan} ({pct:.0f}%)\\n"
+            f"✅ <b>Коробка #{box_number} добавлена!</b>\n"
+            f"ПЗ #{task[0]} | Деталь {task[2]} ({task[3]})\n"
+            f"{type_text}: {data['quantity']}\n\n"
+            f"📊 <b>Факт/План:</b> {total_fact}/{plan} ({pct:.0f}%)\n"
             f"❌ Брак: {total_defect}"
         )
         await callback.message.edit_text(report_text, parse_mode="HTML")
 
         await notify_seniors(
             f"🔔 <b>{'Старший' if user[3] != 'operator' else 'Оператор'} {user[2]}</b> "
-            f"добавил коробку #{box_number}\\n"
-            f"Участок: {db.get_sector_name(task[1])}\\n"
-            f"ПЗ: #{task[0]} | Деталь {task[2]} ({task[3]})\\n"
-            f"{type_text}: {data['quantity']}\\n"
+            f"добавил коробку #{box_number}\n"
+            f"Участок: {db.get_sector_name(task[1])}\n"
+            f"ПЗ: #{task[0]} | Деталь {task[2]} ({task[3]})\n"
+            f"{type_text}: {data['quantity']}\n"
             f"Факт/План: {total_fact}/{plan} ({pct:.0f}%)"
         )
 
@@ -810,7 +810,7 @@ async def edit_task_select(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(task_id=task_id)
     await state.set_state(BoxEditStates.waiting_box)
     await callback.message.edit_text(
-        f"ПЗ #{task_id} | Деталь {task[2]} ({task[3]})\\nВыберите коробку:",
+        f"ПЗ #{task_id} | Деталь {task[2]} ({task[3]})\nВыберите коробку:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
     await callback.answer()
@@ -842,8 +842,8 @@ async def edit_box_select(callback: types.CallbackQuery, state: FSMContext):
     )
     await state.set_state(BoxEditStates.waiting_type)
     await callback.message.edit_text(
-        f"📦 Коробка #{box[3]}\\n"
-        f"Сейчас: годен {box[4]}, брак {box[5]}\\n\\n"
+        f"📦 Коробка #{box[3]}\n"
+        f"Сейчас: годен {box[4]}, брак {box[5]}\n\n"
         f"Что изменить?",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✏️ Годен", callback_data="be_type_good"),
@@ -874,8 +874,8 @@ async def edit_new_box(callback: types.CallbackQuery, state: FSMContext):
     )
     await state.set_state(BoxEditStates.waiting_type)
     await callback.message.edit_text(
-        f"➕ Новая коробка для ПЗ #{task_id}\\n"
-        f"Деталь: {task[2]} ({task[3]})\\n"
+        f"➕ Новая коробка для ПЗ #{task_id}\n"
+        f"Деталь: {task[2]} ({task[3]})\n"
         f"Выберите тип:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Годен", callback_data="be_type_good"),
@@ -898,7 +898,7 @@ async def edit_type_select(callback: types.CallbackQuery, state: FSMContext):
 async def show_edit_qty_keyboard(msg_obj, state: FSMContext, quantity):
     data = await state.get_data()
     text = (
-        f"ПЗ #{data.get('task_id')} | Деталь <b>{data.get('part_number')}</b>\\n"
+        f"ПЗ #{data.get('task_id')} | Деталь <b>{data.get('part_number')}</b>\n"
         f"Новое значение ({'годен' if data.get('box_type') == 'good' else 'брак'}): "
         f"<b>{quantity}</b>"
     )
@@ -929,8 +929,8 @@ async def edit_qty_button(callback: types.CallbackQuery, state: FSMContext):
             return
         await state.set_state(BoxEditStates.waiting_confirmation)
         await callback.message.edit_text(
-            f"<b>Подтвердить изменение?</b>\\n"
-            f"ПЗ #{data.get('task_id')} | Деталь {data.get('part_number')}\\n"
+            f"<b>Подтвердить изменение?</b>\n"
+            f"ПЗ #{data.get('task_id')} | Деталь {data.get('part_number')}\n"
             f"{'Годен' if data.get('box_type') == 'good' else 'Брак'}: {quantity}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="✅ Да", callback_data="be_confirm"),
@@ -962,8 +962,8 @@ async def edit_qty_text(message: types.Message, state: FSMContext):
         await state.set_state(BoxEditStates.waiting_confirmation)
         data = await state.get_data()
         await message.answer(
-            f"<b>Подтвердить изменение?</b>\\n"
-            f"ПЗ #{data.get('task_id')} | {data.get('part_number')}\\n"
+            f"<b>Подтвердить изменение?</b>\n"
+            f"ПЗ #{data.get('task_id')} | {data.get('part_number')}\n"
             f"{'Годен' if data.get('box_type') == 'good' else 'Брак'}: {qty}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="✅ Да", callback_data="be_confirm"),
@@ -1011,9 +1011,9 @@ async def edit_confirm(callback: types.CallbackQuery, state: FSMContext):
 
         stats = db.get_task_statistics(task[0])
         await callback.message.edit_text(
-            f"✅ Сохранено.\\n"
-            f"ПЗ #{task[0]} | Деталь {task[2]} ({task[3]})\\n"
-            f"Годен: {stats[0]}\\nБрак: {stats[1]}\\nКоробок: {stats[2]}",
+            f"✅ Сохранено.\n"
+            f"ПЗ #{task[0]} | Деталь {task[2]} ({task[3]})\n"
+            f"Годен: {stats[0]}\nБрак: {stats[1]}\nКоробок: {stats[2]}",
             parse_mode="HTML"
         )
     except Exception as e:
